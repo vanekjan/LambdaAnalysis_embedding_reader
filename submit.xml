@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8" ?> 
+<job maxFilesPerProcess="1" fileListSyntax="paths" copyInputLocally="false" simulateSubmission="false">
+<command>
+
+starver DEV
+
+mkdir input
+
+cp $INPUTFILE0 ./input/pythia8.event.root
+
+echo $INPUTFILE0 | sed -e 's|event|MuDst|' | xargs -i{} cp {} ./input/pythia8.MuDst.root
+
+echo $INPUTFILE0 | sed -e 's|event|geant|' | xargs -i{} cp {} ./input/pythia8.geant.root
+
+echo $INPUTFILE0 | sed -e 's|event|minimc|' | xargs -i{} cp {} ./input/pythia8.minimc.root
+
+ls -l input
+
+root4star -l -b -q -x 'run_StMcAnalysisMaker.C("./input/pythia8.event.root","$JOBID")' > out.log
+
+</command>
+	
+	<stdout URL="file:/star/u/vanekjan/pwg/vanekjan/ppEmbedding/Lambda_PYTHIA_pp_reader/log/$JOBID.log"/>
+	<stderr URL="file:/star/u/vanekjan/pwg/vanekjan/ppEmbedding/Lambda_PYTHIA_pp_reader/err/$JOBID.err"/>
+
+	<Generator>
+		<Location>./report/</Location>
+		<ScriptLocation>./csh/</ScriptLocation>
+		<ListLocation>./list/</ListLocation>
+	</Generator>
+
+  <input URL="filelist:/star/u/vanekjan/pwg/vanekjan/ppEmbedding/Lambda_PYTHIA_pp_reader/fileLists/fileList.list"/>
+
+	<SandBox installer="ZIP">
+    <Package name="LocalLibraries">
+			<File>file:./StRoot/</File>
+      <File>file:./run_StMcAnalysisMaker.C</File>
+			<File>file:./.sl73_gcc485/</File>
+		</Package>
+	</SandBox>
+	
+  <output fromScratch="*.root" toURL="file:/star/u/vanekjan/pwg/vanekjan/ppEmbedding/Lambda_PYTHIA_pp_reader/production/&productionId;/"/>
+  <output fromScratch="*.log" toURL="file:/star/u/vanekjan/pwg/vanekjan/ppEmbedding/Lambda_PYTHIA_pp_reader/jobs/log/&productionId;/"/>
+</job>
