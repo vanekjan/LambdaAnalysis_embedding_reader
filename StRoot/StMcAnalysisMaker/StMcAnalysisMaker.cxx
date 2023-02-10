@@ -358,8 +358,8 @@ void StMcAnalysisMaker::fillTpcNtuple(StMcTrack const* const mcTrack, StTrack co
 
 bool StMcAnalysisMaker::isGoodMcTrack(StMcTrack const* const mcTrack) const
 {
-   return ( mcTrack->parent()->geantId() == McAnaCuts::motherGeantId_1 || mcTrack->parent()->geantId() == McAnaCuts::motherGeantId_2 )
-          && mcTrack->geantId() == McAnaCuts::geantId_1
+//    ( mcTrack->parent()->geantId() == McAnaCuts::motherGeantId_1 || mcTrack->parent()->geantId() == McAnaCuts::motherGeantId_2 )
+   return mcTrack->geantId() == McAnaCuts::geantId_1
           && mcTrack->startVertex()->position().perp() < McAnaCuts::mcTrackStartVtxR;
 }
 

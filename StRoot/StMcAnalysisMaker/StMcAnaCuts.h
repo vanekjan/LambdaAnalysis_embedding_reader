@@ -39,7 +39,7 @@ namespace McAnaCuts
   float const mcTrackStartVtxR = 30.0; // maximum
   
   
-  int const geantId_1 = 8; //pi+
+  int const geantId_1 = 8; //pi+ = 8
   int const geantId_2 = 14; //p
   
   
