@@ -40,11 +40,13 @@ namespace McAnaCuts
   
   
   int const geantId_1 = 8; //pi+ = 8
-  int const geantId_2 = 14; //p
+  int const geantId_2 = 14; //p = 14
   
+  int const geantId_3 = 9; // pi- = 9
+  int const geantId_4 = 15; // p-bar = 15
   
-  int const motherGeantId_1 = 18; //Lambda
-  int const motherGeantId_2 = 26; //Lambda-bar
+  //int const motherGeantId_1 = 18; //Lambda
+  //int const motherGeantId_2 = 26; //Lambda-bar
 
   StDedxMethod dedxMethod = kLikelihoodFitId;
 

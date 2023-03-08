@@ -16,7 +16,7 @@ echo $INPUTFILE0 | sed -e 's|event|minimc|' | xargs -i{} cp {} ./input/pythia8.m
 
 ls -l input
 
-root4star -l -b -q -x 'run_StMcAnalysisMaker.C("./input/pythia8.event.root","$JOBID")' > out.log
+root4star -l -b -q -x 'run_StMcAnalysisMaker.C("./input/pythia8.event.root","$JOBID")' &gt;&amp; ${JOBID}_my.log
 
 </command>
 	
@@ -29,7 +29,7 @@ root4star -l -b -q -x 'run_StMcAnalysisMaker.C("./input/pythia8.event.root","$JO
 		<ListLocation>./list/</ListLocation>
 	</Generator>
 
-  <input URL="filelist:/star/u/vanekjan/pwg/vanekjan/ppEmbedding/Lambda_PYTHIA_pp_reader/fileLists/fileList.list"/>
+  <input URL="filelist:&localPath;/&mFileList;"/>
 
 	<SandBox installer="ZIP">
     <Package name="LocalLibraries">

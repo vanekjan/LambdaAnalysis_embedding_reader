@@ -3,6 +3,7 @@
 
 #include <vector>
 #include "TString.h"
+#include "TDatabasePDG.h"
 
 #include "StChain/StMaker.h"
 
@@ -33,6 +34,9 @@ private:
    TNtuple* mTracks;
    TNtuple* mEventCount; //.. For counting purposes
    TNtuple* mTpcNtuple;
+   TNtuple* mLambda;
+   
+   TDatabasePDG *mPDGdata;
 
    TH3F* hTpcHitsDiffXVsPadrowVsSector;                                                                                                                                                                  
    TH3F* hTpcHitsDiffYVsPadrowVsSector;
@@ -52,7 +56,15 @@ private:
    int  fillTracks(int& nRTracks, int& nMcTracks);
    void fillMcTrack(float* array,int& idx,StMcTrack const*);
    void fillRcTrack(float* array,int& idx,StMcTrack const*,StTrack const*,int const ncom);
+   
+   int  fillLambdas();
+   //void fillMCLambdas( float* array, StMcTrack const* );
+   //void fillRCLambdas(float* array,int& idx,StMcTrack const*,StTrack const*,int const ncom);
+   
    void getDca(StTrack const*,float& dca, float& dcaXY, float& dcaZ) const;
+   
+   float getPairDca(StTrack const* trk1, StTrack const* trk2) const;
+   float getDecayLength(StTrack const* trk1, StTrack const* trk2) const;
 
    bool isGoodMcTrack(StMcTrack const*) const;
 
