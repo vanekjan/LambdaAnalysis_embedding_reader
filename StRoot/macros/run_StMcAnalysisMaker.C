@@ -5,7 +5,7 @@ void Load();
 
 using namespace std;
 
-void run_StMcAnalysisMaker(const char* file, std::string outFile = "test")
+void run_StMcAnalysisMaker(const char* file, std::string outFile = "test", const int jobIndex = 0)
 {
    TStopwatch*   stopWatch = new TStopwatch();
    stopWatch->Start();
@@ -13,7 +13,7 @@ void run_StMcAnalysisMaker(const char* file, std::string outFile = "test")
    //Check STAR Library. Please set SL_version to the original star library used
    // in the production from http://www.star.bnl.gov/devcgi/dbProdOptionRetrv.pl
 
-   string SL_version = "DEV";
+   string SL_version = "SL21d";
    string env_SL = getenv("STAR");
 
    if (env_SL.find(SL_version) == string::npos)
@@ -77,6 +77,7 @@ void run_StMcAnalysisMaker(const char* file, std::string outFile = "test")
    // Monte Carlo event maker
    StMcAnalysisMaker* analysis = new StMcAnalysisMaker;
    analysis->setOutFileName(outFile);
+   analysis->setJobIndex(jobIndex); //to set unique eventId for each submit
    // analysis->fillTpcHitsNtuple();
 
    // Initialize chain

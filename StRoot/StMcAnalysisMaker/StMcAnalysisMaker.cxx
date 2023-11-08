@@ -100,7 +100,10 @@ int StMcAnalysisMaker::Init()
                          "px_L:py_L:pz_L:E_L:y_L:M_L:decL_L:Id:" // MC - Lambda
                          "gPx_pi:gPy_pi:gPz_pi:nFit_pi:nMax_pi:nCom_pi:nDedx_pi:dedx_pi:nSigPi_pi:nSigK_pi:nSigP_pi:dca_pi:dcaXY_pi:dcaZ_pi:" // RC - pi
                          "gPx_p:gPy_p:gPz_p:nFit_p:nMax_p:nCom_p:nDedx_p:dedx_p:nSigPi_p:nSigK_p:nSigP_p:dca_p:dcaXY_p:dcaZ_p:" // RC - p
-                         "gPx_L:gPy_L:gPz_L:gDecL_L:gCosTheta_L:pairDCA_L:eventId"); // RC - L
+                         "gPx_L:gPy_L:gPz_L:gMass:"
+                         "gDecVtx_x:gDecVtx_y:gDecVtx_z:gDecL_L:pairDCA_L:" // RC - L
+                         "eventId:vx_MC:vy_MC:vz_MC:"
+                         "vx_RC:vy_RC:vz_RC"); //event
                          
    mPDGdata = new TDatabasePDG();
 
@@ -503,7 +506,25 @@ float StMcAnalysisMaker::getPairDca(StTrack const* trk1, StTrack const* trk2) co
 
 }
 
-float StMcAnalysisMaker::getDecayLength(StTrack const* trk1, StTrack const* trk2) const
+float StMcAnalysisMaker::getDecayLength(StThreeVectorF pVertex_RC, StTrack const* trk1, StTrack const* trk2) const
+{
+  StPhysicalHelixD helix1 = trk1->geometry()->helix();
+  StPhysicalHelixD helix2 = trk2->geometry()->helix();
+  
+  pair<double, double> const ss = helix1.pathLengths(helix2);
+  
+  StThreeVectorF dcaPoint1 = helix1.at(ss.first);
+  StThreeVectorF dcaPoint2 = helix2.at(ss.second);
+  
+  StThreeVectorF secondaryVertex = (dcaPoint1 + dcaPoint2) * 0.5;
+  
+  StThreeVectorF DecL_vect = pVertex_RC - secondaryVertex;
+  
+  return DecL_vect.mag();
+
+}
+
+StThreeVectorF StMcAnalysisMaker::getSecondaryVertex(StTrack const* trk1, StTrack const* trk2) const
 {
   StPhysicalHelixD helix1 = trk1->geometry()->helix();
   StPhysicalHelixD helix2 = trk2->geometry()->helix();
@@ -515,7 +536,15 @@ float StMcAnalysisMaker::getDecayLength(StTrack const* trk1, StTrack const* trk2
   
   StThreeVectorF secondaryVertex = (dcaPoint1 + dcaPoint2) * 0.5;
 
-  return secondaryVertex.mag();
+  return secondaryVertex;
+
+}
+
+StThreeVectorF StMcAnalysisMaker::getMomentumAt(StTrack const* trk, StThreeVectorF vertex) const
+{
+  StPhysicalHelixD helix = trk->geometry()->helix();
+    
+  return helix.momentumAt(helix.pathLength(vertex), mField*kilogauss); //should be/is in kilogauss?
 
 }
 
@@ -639,8 +668,8 @@ int StMcAnalysisMaker::fillLambdas()
   TParticlePDG *p_PDG = mPDGdata->GetParticle(2212);
   TParticlePDG *p_bar_PDG = mPDGdata->GetParticle(-2212);
   
-  //Lambda
   
+  //Lambda  
   for(unsigned int i_p = 0; i_p < p_index.size(); i_p++)
   {
     StMcTrack* const proton = mMcEvent->tracks()[p_index.at(i_p)];
@@ -667,7 +696,7 @@ int StMcAnalysisMaker::fillLambdas()
       
       TLorentzVector L_4mom = p_4mom+pi_4mom;
       
-      if( fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5  )
+      if( fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5  ) //good MC Lambda
       //if( fabs(proton->startVertex()->position().mag() - pion->startVertex()->position().mag()) < 1e-5 && fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5 )
       {
         //cout<<"Lambda found!"<<endl;
@@ -692,146 +721,238 @@ int StMcAnalysisMaker::fillLambdas()
         L_tree_vars[iVar++] = L_4mom.E();
         L_tree_vars[iVar++] = L_4mom.Rapidity();
         L_tree_vars[iVar++] = L_4mom.M();
-        L_tree_vars[iVar++] = pion->startVertex()->position().mag(); //L MC decay vertex based on pion origin
+        
+        StThreeVectorF PrimaryVertex_MC(mMcEvent->primaryVertex()->position().x(),mMcEvent->primaryVertex()->position().y(),mMcEvent->primaryVertex()->position().z());
+        StThreeVectorF DecL_vect_MC = PrimaryVertex_MC - pion->startVertex()->position(); //L MC decay vertex based on pion origin 
+        
+        L_tree_vars[iVar++] = DecL_vect_MC.mag();
         
         L_tree_vars[iVar++] = 3122; //L PDG id
         
                
-        //get RC partner
-               
-        if(rcPion)
+        //get RC partners
+        //want to store only for good reconstructed L, i.e. good p-pi pair
+        
+        StThreeVectorF SecondaryVertex_RC;
+        
+        StThreeVectorF rcPionMom;
+        
+        if(rcPion && rcProton)
         {
-          L_tree_vars[iVar++] = rcPion->geometry()->momentum().x();
-          L_tree_vars[iVar++] = rcPion->geometry()->momentum().y();
-          L_tree_vars[iVar++] = rcPion->geometry()->momentum().z();
+          SecondaryVertex_RC = getSecondaryVertex(rcPion, rcProton); //this can be used for proton too
+          
+          rcPionMom = getMomentumAt(rcPion, SecondaryVertex_RC);
+        
+          //L_tree_vars[iVar++] = rcPion->geometry()->momentum().x();
+          //L_tree_vars[iVar++] = rcPion->geometry()->momentum().y();
+          //L_tree_vars[iVar++] = rcPion->geometry()->momentum().z();
+          L_tree_vars[iVar++] = rcPionMom.x();
+          L_tree_vars[iVar++] = rcPionMom.y();
+          L_tree_vars[iVar++] = rcPionMom.z();
           L_tree_vars[iVar++] = rcPion->fitTraits().numberOfFitPoints(kTpcId);
           L_tree_vars[iVar++] = rcPion->numberOfPossiblePoints(kTpcId);
           L_tree_vars[iVar++] = nCommonHits_pi;
           
           // dedx info
-         float nDedxPts = -9999;
-         float dedx = -9999;
-         float nSigPi = -9999;
-         float nSigK = -9999;
-         float nSigP = -9999;
-         
-         static StTpcDedxPidAlgorithm aplus(McAnaCuts::dedxMethod);
-         static StPionPlus* Pion = StPionPlus::instance();
-         static StKaonPlus* Kaon = StKaonPlus::instance();
-         static StProton* Proton = StProton::instance();
-         StParticleDefinition const* prtcl = rcPion->pidTraits(aplus);
+          float nDedxPts = -9999;
+          float dedx = -9999;
+          float nSigPi = -9999;
+          float nSigK = -9999;
+          float nSigP = -9999;
 
-         if (prtcl)
-         {
+          static StTpcDedxPidAlgorithm aplus(McAnaCuts::dedxMethod);
+          static StPionPlus* Pion = StPionPlus::instance();
+          static StKaonPlus* Kaon = StKaonPlus::instance();
+          static StProton* Proton = StProton::instance();
+          StParticleDefinition const* prtcl = rcPion->pidTraits(aplus);
+
+          if (prtcl)
+          {
             nDedxPts = aplus.traits()->numberOfPoints();
             dedx = aplus.traits()->mean();
             nSigPi = aplus.numberOfSigma(Pion);
             nSigK = aplus.numberOfSigma(Kaon);
             nSigP = aplus.numberOfSigma(Proton);
-         }
+          }
 
-         L_tree_vars[iVar++] = getNHitsDedx(rcPion);
-         L_tree_vars[iVar++] = dedx;
-         L_tree_vars[iVar++] = nSigPi;
-         L_tree_vars[iVar++] = nSigK;
-         L_tree_vars[iVar++] = nSigP;
+          L_tree_vars[iVar++] = getNHitsDedx(rcPion);
+          L_tree_vars[iVar++] = dedx;
+          L_tree_vars[iVar++] = nSigPi;
+          L_tree_vars[iVar++] = nSigK;
+          L_tree_vars[iVar++] = nSigP;
 
 
-         float dca = -999.;
-         float dcaXY = -999.;
-         float dcaZ = -999.;
+          float dca = -999.;
+          float dcaXY = -999.;
+          float dcaZ = -999.;
 
-         getDca(rcPion, dca, dcaXY, dcaZ);
+          getDca(rcPion, dca, dcaXY, dcaZ);
 
-         L_tree_vars[iVar++] = dca;
-         L_tree_vars[iVar++] = dcaXY;
-         L_tree_vars[iVar++] = dcaZ;                             
+          L_tree_vars[iVar++] = dca;
+          L_tree_vars[iVar++] = dcaXY;
+          L_tree_vars[iVar++] = dcaZ;                             
           
         
         }
         else
         {
-          iVar += 14;        
+          //iVar += 14;
+          
+          //14 default values
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
         }
         //________________________________
         
-        if(rcProton)
+        StThreeVectorF rcProtonMom;
+        
+        if(rcPion && rcProton)
         {
-          L_tree_vars[iVar++] = rcProton->geometry()->momentum().x();
-          L_tree_vars[iVar++] = rcProton->geometry()->momentum().y();
-          L_tree_vars[iVar++] = rcProton->geometry()->momentum().z();
+          rcProtonMom = getMomentumAt(rcProton, SecondaryVertex_RC);                 
+        
+          //L_tree_vars[iVar++] = rcProton->geometry()->momentum().x();
+          //L_tree_vars[iVar++] = rcProton->geometry()->momentum().y();
+          //L_tree_vars[iVar++] = rcProton->geometry()->momentum().z();
+          L_tree_vars[iVar++] = rcProtonMom.x();
+          L_tree_vars[iVar++] = rcProtonMom.y();
+          L_tree_vars[iVar++] = rcProtonMom.z();
           L_tree_vars[iVar++] = rcProton->fitTraits().numberOfFitPoints(kTpcId);
           L_tree_vars[iVar++] = rcProton->numberOfPossiblePoints(kTpcId);
           L_tree_vars[iVar++] = nCommonHits_p;
           
           // dedx info
-         float nDedxPts = -9999;
-         float dedx = -9999;
-         float nSigPi = -9999;
-         float nSigK = -9999;
-         float nSigP = -9999;
-         
-         static StTpcDedxPidAlgorithm aplus(McAnaCuts::dedxMethod);
-         static StPionPlus* Pion = StPionPlus::instance();
-         static StKaonPlus* Kaon = StKaonPlus::instance();
-         static StProton* Proton = StProton::instance();
-         StParticleDefinition const* prtcl = rcProton->pidTraits(aplus);
+          float nDedxPts = -9999;
+          float dedx = -9999;
+          float nSigPi = -9999;
+          float nSigK = -9999;
+          float nSigP = -9999;
 
-         if (prtcl)
-         {
+          static StTpcDedxPidAlgorithm aplus(McAnaCuts::dedxMethod);
+          static StPionPlus* Pion = StPionPlus::instance();
+          static StKaonPlus* Kaon = StKaonPlus::instance();
+          static StProton* Proton = StProton::instance();
+          StParticleDefinition const* prtcl = rcProton->pidTraits(aplus);
+
+          if (prtcl)
+          {
             nDedxPts = aplus.traits()->numberOfPoints();
             dedx = aplus.traits()->mean();
             nSigPi = aplus.numberOfSigma(Pion);
             nSigK = aplus.numberOfSigma(Kaon);
             nSigP = aplus.numberOfSigma(Proton);
-         }
+          }
 
-         L_tree_vars[iVar++] = getNHitsDedx(rcProton);
-         L_tree_vars[iVar++] = dedx;
-         L_tree_vars[iVar++] = nSigPi;
-         L_tree_vars[iVar++] = nSigK;
-         L_tree_vars[iVar++] = nSigP;
+          L_tree_vars[iVar++] = getNHitsDedx(rcProton);
+          L_tree_vars[iVar++] = dedx;
+          L_tree_vars[iVar++] = nSigPi;
+          L_tree_vars[iVar++] = nSigK;
+          L_tree_vars[iVar++] = nSigP;
 
 
-         float dca = -999.;
-         float dcaXY = -999.;
-         float dcaZ = -999.;
+          float dca = -999.;
+          float dcaXY = -999.;
+          float dcaZ = -999.;
 
-         getDca(rcProton, dca, dcaXY, dcaZ);
+          getDca(rcProton, dca, dcaXY, dcaZ);
 
-         L_tree_vars[iVar++] = dca;
-         L_tree_vars[iVar++] = dcaXY;
-         L_tree_vars[iVar++] = dcaZ;                             
+          L_tree_vars[iVar++] = dca;
+          L_tree_vars[iVar++] = dcaXY;
+          L_tree_vars[iVar++] = dcaZ;                             
           
         
         }
         else
         {
-          iVar += 14;        
+          //iVar += 14;
+          
+          //14 default values
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
         }
         
         if(rcPion && rcProton)
         {
         
-          TVector3 pi_rc_mom(rcPion->geometry()->momentum().x(), rcPion->geometry()->momentum().y(), rcPion->geometry()->momentum().z());
-          TVector3 p_rc_mom(rcProton->geometry()->momentum().x(), rcProton->geometry()->momentum().y(), rcProton->geometry()->momentum().z());
+          TLorentzVector pi_rc_mom;
+          //pi_rc_mom.SetXYZM(rcPion->geometry()->momentum().x(), rcPion->geometry()->momentum().y(), rcPion->geometry()->momentum().z(),pi_minus_PDG->Mass());
+          pi_rc_mom.SetXYZM(rcPionMom.x(), rcPionMom.y(), rcPionMom.z(),pi_minus_PDG->Mass());
           
-          TVector3 L_rc_mom = pi_rc_mom+p_rc_mom;
+          TLorentzVector p_rc_mom;
+          //p_rc_mom.SetXYZM(rcProton->geometry()->momentum().x(), rcProton->geometry()->momentum().y(), rcProton->geometry()->momentum().z(),p_PDG->Mass());
+          p_rc_mom.SetXYZM(rcProtonMom.x(), rcProtonMom.y(), rcProtonMom.z(),p_PDG->Mass());
+          
+          TLorentzVector L_rc_mom = pi_rc_mom+p_rc_mom;
           
           L_tree_vars[iVar++] = L_rc_mom.X();
           L_tree_vars[iVar++] = L_rc_mom.Y();
           L_tree_vars[iVar++] = L_rc_mom.Z();
+          L_tree_vars[iVar++] = L_rc_mom.M();
           
-          L_tree_vars[iVar++] = getDecayLength(rcPion, rcProton);
+          //secondary vertex calculated earlier to calculate correct momenta of decay daugters
+          L_tree_vars[iVar++] = SecondaryVertex_RC.x();
+          L_tree_vars[iVar++] = SecondaryVertex_RC.y();
+          L_tree_vars[iVar++] = SecondaryVertex_RC.z();          
+          
+          StThreeVectorF PrimaryVertex_RC(mEvent->primaryVertex()->position().x(),mEvent->primaryVertex()->position().y(),mEvent->primaryVertex()->position().z());
+          
+          L_tree_vars[iVar++] = getDecayLength(PrimaryVertex_RC,rcPion, rcProton);
           L_tree_vars[iVar++] = getPairDca(rcPion, rcProton);
         
         }
         else
         {        
-          iVar += 5;        
+          //iVar += 9;
+          
+          //9 default values
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+                    
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
         }
         
-        L_tree_vars[iVar++] = mMcEvent->eventNumber();
+        L_tree_vars[iVar++] = mMcEvent->eventNumber() + mJobIndex*1001;
+        
+        L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().x();
+        L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().y();
+        L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().z();
+        
+        L_tree_vars[iVar++] = mEvent->primaryVertex()->position().x();
+        L_tree_vars[iVar++] = mEvent->primaryVertex()->position().y();
+        L_tree_vars[iVar++] = mEvent->primaryVertex()->position().z();
         
         mLambda->Fill(L_tree_vars);
 
@@ -841,8 +962,10 @@ int StMcAnalysisMaker::fillLambdas()
   
   } //end for protons
   
+  //reset values in 
+  for(unsigned int i = 0; i < 100; i++) L_tree_vars[i] = -999; //default values
   
-  //L-bar
+  //Lbar
   for(unsigned int i_p = 0; i_p < p_bar_index.size(); i_p++)
   {
     StMcTrack* const proton = mMcEvent->tracks()[p_bar_index.at(i_p)];
@@ -894,18 +1017,33 @@ int StMcAnalysisMaker::fillLambdas()
         L_tree_vars[iVar++] = L_4mom.E();
         L_tree_vars[iVar++] = L_4mom.Rapidity();
         L_tree_vars[iVar++] = L_4mom.M();
-        L_tree_vars[iVar++] = pion->startVertex()->position().mag(); //L MC decay vertex based on pion origin             
+        
+        StThreeVectorF PrimaryVertex_MC(mMcEvent->primaryVertex()->position().x(),mMcEvent->primaryVertex()->position().y(),mMcEvent->primaryVertex()->position().z());
+        StThreeVectorF DecL_vect_MC = PrimaryVertex_MC - pion->startVertex()->position(); //L MC decay vertex based on pion origin 
+        
+        L_tree_vars[iVar++] = DecL_vect_MC.mag();
                 
         L_tree_vars[iVar++] = -3122; //L-bar PDG id
         
                
         //get RC partner
                
-        if(rcPion)
+        StThreeVectorF SecondaryVertex_RC;
+        
+        StThreeVectorF rcPionMom;
+        
+        if(rcPion && rcProton)
         {
-          L_tree_vars[iVar++] = rcPion->geometry()->momentum().x();
-          L_tree_vars[iVar++] = rcPion->geometry()->momentum().y();
-          L_tree_vars[iVar++] = rcPion->geometry()->momentum().z();
+          SecondaryVertex_RC = getSecondaryVertex(rcPion, rcProton); //this can be used for proton too
+          
+          rcPionMom = getMomentumAt(rcPion, SecondaryVertex_RC);
+        
+          //L_tree_vars[iVar++] = rcPion->geometry()->momentum().x();
+          //L_tree_vars[iVar++] = rcPion->geometry()->momentum().y();
+          //L_tree_vars[iVar++] = rcPion->geometry()->momentum().z();
+          L_tree_vars[iVar++] = rcPionMom.x();
+          L_tree_vars[iVar++] = rcPionMom.y();
+          L_tree_vars[iVar++] = rcPionMom.z();
           L_tree_vars[iVar++] = rcPion->fitTraits().numberOfFitPoints(kTpcId);
           L_tree_vars[iVar++] = rcPion->numberOfPossiblePoints(kTpcId);
           L_tree_vars[iVar++] = nCommonHits_pi;
@@ -953,15 +1091,40 @@ int StMcAnalysisMaker::fillLambdas()
         }
         else
         {
-          iVar += 14;        
+          //iVar += 14;
+          
+          //14 default values
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
         }
         //________________________________
         
-        if(rcProton)
+        StThreeVectorF rcProtonMom;
+        
+        if(rcPion && rcProton)
         {
-          L_tree_vars[iVar++] = rcProton->geometry()->momentum().x();
-          L_tree_vars[iVar++] = rcProton->geometry()->momentum().y();
-          L_tree_vars[iVar++] = rcProton->geometry()->momentum().z();
+          rcProtonMom = getMomentumAt(rcProton, SecondaryVertex_RC);                 
+        
+          //L_tree_vars[iVar++] = rcProton->geometry()->momentum().x();
+          //L_tree_vars[iVar++] = rcProton->geometry()->momentum().y();
+          //L_tree_vars[iVar++] = rcProton->geometry()->momentum().z();
+          L_tree_vars[iVar++] = rcProtonMom.x();
+          L_tree_vars[iVar++] = rcProtonMom.y();
+          L_tree_vars[iVar++] = rcProtonMom.z();
           L_tree_vars[iVar++] = rcProton->fitTraits().numberOfFitPoints(kTpcId);
           L_tree_vars[iVar++] = rcProton->numberOfPossiblePoints(kTpcId);
           L_tree_vars[iVar++] = nCommonHits_p;
@@ -1010,31 +1173,82 @@ int StMcAnalysisMaker::fillLambdas()
         }
         else
         {
-          iVar += 14;        
+          //iVar += 14;
+          
+          //14 default values
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
         }
         
         if(rcPion && rcProton)
         {
         
-          TVector3 pi_rc_mom(rcPion->geometry()->momentum().x(), rcPion->geometry()->momentum().y(), rcPion->geometry()->momentum().z());
-          TVector3 p_rc_mom(rcProton->geometry()->momentum().x(), rcProton->geometry()->momentum().y(), rcProton->geometry()->momentum().z());
+          TLorentzVector pi_rc_mom;
+          //pi_rc_mom.SetXYZM(rcPion->geometry()->momentum().x(), rcPion->geometry()->momentum().y(), rcPion->geometry()->momentum().z(),pi_minus_PDG->Mass());
+          pi_rc_mom.SetXYZM(rcPionMom.x(), rcPionMom.y(), rcPionMom.z(),pi_minus_PDG->Mass());
           
-          TVector3 L_rc_mom = pi_rc_mom+p_rc_mom;
+          TLorentzVector p_rc_mom;
+          //p_rc_mom.SetXYZM(rcProton->geometry()->momentum().x(), rcProton->geometry()->momentum().y(), rcProton->geometry()->momentum().z(),p_PDG->Mass());
+          p_rc_mom.SetXYZM(rcProtonMom.x(), rcProtonMom.y(), rcProtonMom.z(),p_PDG->Mass());
+          
+          TLorentzVector L_rc_mom = pi_rc_mom+p_rc_mom;
           
           L_tree_vars[iVar++] = L_rc_mom.X();
           L_tree_vars[iVar++] = L_rc_mom.Y();
           L_tree_vars[iVar++] = L_rc_mom.Z();
+          L_tree_vars[iVar++] = L_rc_mom.M();
           
-          L_tree_vars[iVar++] = getDecayLength(rcPion, rcProton);
+          StThreeVectorF SecondaryVertex_RC = getSecondaryVertex(rcPion, rcProton);
+          L_tree_vars[iVar++] = SecondaryVertex_RC.x();
+          L_tree_vars[iVar++] = SecondaryVertex_RC.y();
+          L_tree_vars[iVar++] = SecondaryVertex_RC.z();
+          
+          StThreeVectorF PrimaryVertex_RC(mEvent->primaryVertex()->position().x(),mEvent->primaryVertex()->position().y(),mEvent->primaryVertex()->position().z());
+          
+          L_tree_vars[iVar++] = getDecayLength(PrimaryVertex_RC,rcPion, rcProton);
           L_tree_vars[iVar++] = getPairDca(rcPion, rcProton);
         
         }
         else
         {        
-          iVar += 5;
+          //iVar += 9;
+          
+          //9 default values
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+                    
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
+          L_tree_vars[iVar++] = -999;
         }
         
-        L_tree_vars[iVar++] = mMcEvent->eventNumber();
+        L_tree_vars[iVar++] = mMcEvent->eventNumber() + mJobIndex*1001 ; //to set unique eventId in each submit
+        
+        L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().x();
+        L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().y();
+        L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().z();
+        
+        L_tree_vars[iVar++] = mEvent->primaryVertex()->position().x();
+        L_tree_vars[iVar++] = mEvent->primaryVertex()->position().y();
+        L_tree_vars[iVar++] = mEvent->primaryVertex()->position().z();
         
         mLambda->Fill(L_tree_vars);
 
@@ -1044,23 +1258,7 @@ int StMcAnalysisMaker::fillLambdas()
   
   } //end for protons
   
-  
-/*  
-   "px_pi:py_pi:pz_pi:E_pi:y_pi:" // MC - pi
-   "px_p:py_p:pz_p:E_p:y_p:" // MC - p
-   "px_L:py_L:pz_L:E_L:y_L:Id:" // MC - Lambda
-   "gPx_pi:gPy_pi:gPz_pi:nFit_pi:nMax_pi:nCom_pi:nDedx_pi:dedx_pi:nSigPi_pi:nSigK_pi:nSigP_pi:dca_pi:dcaXY_pi:dcaZ_pi:" // RC - pi
-   "gPx_p:gPy_p:gPz_p:nFit_p:nMax_p:nCom_p:nDedx_p:dedx_p:nSigPi_p:nSigK_p:nSigP_p:dca_p:dcaXY_p:dcaZ_p:" // RC - p
-   "gPx_L:gPy_L:gPz_L:eventId"
-   
-   array[idx++] = rcTrack->geometry()->momentum().perp();
-   array[idx++] = rcTrack->geometry()->momentum().pseudoRapidity();
-   array[idx++] = rcTrack->geometry()->momentum().phi();
-   array[idx++] = rcTrack->fitTraits().numberOfFitPoints(kTpcId);
-   array[idx++] = rcTrack->numberOfPossiblePoints(kTpcId);
-   array[idx++] = ncom;
-  
-*/
+
 }
 
 

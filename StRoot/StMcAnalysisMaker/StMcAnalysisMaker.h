@@ -5,6 +5,8 @@
 #include "TString.h"
 #include "TDatabasePDG.h"
 
+#include"StThreeVectorF.hh"
+
 #include "StChain/StMaker.h"
 
 class TFile;
@@ -64,11 +66,15 @@ private:
    void getDca(StTrack const*,float& dca, float& dcaXY, float& dcaZ) const;
    
    float getPairDca(StTrack const* trk1, StTrack const* trk2) const;
-   float getDecayLength(StTrack const* trk1, StTrack const* trk2) const;
+   float getDecayLength(StThreeVectorF pVertex_RC, StTrack const* trk1, StTrack const* trk2) const;
+   StThreeVectorF getSecondaryVertex(StTrack const* trk1, StTrack const* trk2) const;
+   StThreeVectorF getMomentumAt(StTrack const* trk, StThreeVectorF vertex) const;
 
    bool isGoodMcTrack(StMcTrack const*) const;
 
    void fillTpcNtuple(StMcTrack const* const,StTrack const* const);
+   
+   int mJobIndex;
 
 public:
    StMcAnalysisMaker (const char *name="StMcAnalysisMaker", const char *title="event/StMcAnalysisMaker");
@@ -79,11 +85,14 @@ public:
 
    void setOutFileName(std::string);
    void fillTpcHitsNtuple(bool t=true);
+   
+   void setJobIndex(int jobIndex); //to set uniqure eventId for each submitted job
 
    ClassDef(StMcAnalysisMaker, 0)
 };
 
 inline void StMcAnalysisMaker::fillTpcHitsNtuple(bool t){ mFillTpcHitsNtuple=t;}
 inline void StMcAnalysisMaker::setOutFileName(std::string s){ mOutfileName = s.c_str();}
+inline void StMcAnalysisMaker::setJobIndex( int jobIndex ){ mJobIndex = jobIndex; }
 
 #endif
