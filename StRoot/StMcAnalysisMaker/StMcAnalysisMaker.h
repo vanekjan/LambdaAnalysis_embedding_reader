@@ -37,12 +37,19 @@ private:
    TNtuple* mEventCount; //.. For counting purposes
    TNtuple* mTpcNtuple;
    TNtuple* mLambda;
+   TNtuple* mLambdaRC;
    
    TDatabasePDG *mPDGdata;
 
    TH3F* hTpcHitsDiffXVsPadrowVsSector;                                                                                                                                                                  
    TH3F* hTpcHitsDiffYVsPadrowVsSector;
    TH3F* hTpcHitsDiffZVsPadrowVsSector;
+   
+   TH1F *nLambdas_hist;
+   TH1F *nLambdaBars_hist;
+   
+   TH1F *nLambdaMothers_hist;
+   TH1F *nLambdaBarMothers_hist;
 
    StMcEvent* mMcEvent;
    StEvent* mEvent;
@@ -59,18 +66,26 @@ private:
    void fillMcTrack(float* array,int& idx,StMcTrack const*);
    void fillRcTrack(float* array,int& idx,StMcTrack const*,StTrack const*,int const ncom);
    
-   int  fillLambdas();
+   int fillLambdas_direct();
+   int  fillLambdas_pairs(); //find MC Lambdas and match them to RC
+   int fillRCLambdas(); //fill RC p-pi pairs, like as is done in data. This includes combinatorial background.
    //void fillMCLambdas( float* array, StMcTrack const* );
    //void fillRCLambdas(float* array,int& idx,StMcTrack const*,StTrack const*,int const ncom);
    
    void getDca(StTrack const*,float& dca, float& dcaXY, float& dcaZ) const;
    
    float getPairDca(StTrack const* trk1, StTrack const* trk2) const;
-   float getDecayLength(StThreeVectorF pVertex_RC, StTrack const* trk1, StTrack const* trk2) const;
+   float getPairDcaStraightLine(StTrack const* trk1, StTrack const* trk2) const;
+   
    StThreeVectorF getSecondaryVertex(StTrack const* trk1, StTrack const* trk2) const;
+   StThreeVectorF getSecondaryVertexStraightLine(StTrack const* trk1, StTrack const* trk2) const;
+   
    StThreeVectorF getMomentumAt(StTrack const* trk, StThreeVectorF vertex) const;
 
    bool isGoodMcTrack(StMcTrack const*) const;
+   
+   bool isGoodRcPion(StTrack const*, int nCommonHits) const;
+   bool isGoodRcProton(StTrack const*, int nCommonHits) const;
 
    void fillTpcNtuple(StMcTrack const* const,StTrack const* const);
    

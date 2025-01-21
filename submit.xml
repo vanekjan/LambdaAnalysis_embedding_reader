@@ -2,21 +2,22 @@
 <job maxFilesPerProcess="1" fileListSyntax="paths" copyInputLocally="false" simulateSubmission="false">
 <command>
 
-starver SL21d
-
 mkdir input
 
 cp $INPUTFILE0 ./input/pythia8.event.root
 
-echo $INPUTFILE0 | sed -e 's|event|MuDst|' | xargs -i{} cp {} ./input/pythia8.MuDst.root
+echo $INPUTFILE0 | sed -e 's|event|MuDst|' | xargs -I {} cp {} ./input/pythia8.MuDst.root
 
-echo $INPUTFILE0 | sed -e 's|event|geant|' | xargs -i{} cp {} ./input/pythia8.geant.root
+echo $INPUTFILE0 | sed -e 's|event|geant|' | xargs -I {} cp {} ./input/pythia8.geant.root
 
-echo $INPUTFILE0 | sed -e 's|event|minimc|' | xargs -i{} cp {} ./input/pythia8.minimc.root
+echo $INPUTFILE0 | sed -e 's|event|minimc|' | xargs -I {} cp {} ./input/pythia8.minimc.root
 
 ls -l input
 
 echo $JOBINDEX
+
+
+starver SL21d
 
 root4star -l -b -q -x run_StMcAnalysisMaker.C\(\"./input/pythia8.event.root\",\"$JOBID\",$JOBINDEX\) &gt;&amp; ${JOBID}_my.log
 

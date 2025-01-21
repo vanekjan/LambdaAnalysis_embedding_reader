@@ -44,7 +44,7 @@ ClassImp(StMcAnalysisMaker);
 
 StMcAnalysisMaker::StMcAnalysisMaker(const char *name, const char *title): StMaker(name),
    mMuDst(NULL), mField(-999), mFillTpcHitsNtuple(false), 
-   mFile(NULL), mTracks(NULL), mLambda(NULL),mEventCount(NULL), mMcEvent(NULL), mEvent(NULL), mAssoc(NULL)
+   mFile(NULL), mTracks(NULL), mLambda(NULL), mLambdaRC(NULL), mEventCount(NULL), mMcEvent(NULL), mEvent(NULL), mAssoc(NULL)
 {
    LOG_INFO << "StMcAnalysisMaker() - DONE" << endm;
 }
@@ -97,15 +97,32 @@ int StMcAnalysisMaker::Init()
                          
    mLambda = new TNtuple("Lambda", "Lambda", "px_pi:py_pi:pz_pi:E_pi:y_pi:" // MC - pi
                          "px_p:py_p:pz_p:E_p:y_p:" // MC - p
-                         "px_L:py_L:pz_L:E_L:y_L:M_L:decL_L:Id:" // MC - Lambda
+                         "px_L:py_L:pz_L:E_L:y_L:M_L:decL_L:Id:MotherID:" // MC - Lambda
                          "gPx_pi:gPy_pi:gPz_pi:nFit_pi:nMax_pi:nCom_pi:nDedx_pi:dedx_pi:nSigPi_pi:nSigK_pi:nSigP_pi:dca_pi:dcaXY_pi:dcaZ_pi:" // RC - pi
                          "gPx_p:gPy_p:gPz_p:nFit_p:nMax_p:nCom_p:nDedx_p:dedx_p:nSigPi_p:nSigK_p:nSigP_p:dca_p:dcaXY_p:dcaZ_p:" // RC - p
                          "gPx_L:gPy_L:gPz_L:gMass:"
                          "gDecVtx_x:gDecVtx_y:gDecVtx_z:gDecL_L:pairDCA_L:" // RC - L
-                         "eventId:vx_MC:vy_MC:vz_MC:"
+                         "eventId:eventId_file:vx_MC:vy_MC:vz_MC:"
+                         "vx_RC:vy_RC:vz_RC"); //event
+                         
+   mLambdaRC = new TNtuple("LambdaRC", "LambdaRC", "Id_pi:px_pi:py_pi:pz_pi:E_pi:y_pi:" // MC - pi
+                         "Id_p:px_p:py_p:pz_p:E_p:y_p:" // MC - p
+                         "px_L:py_L:pz_L:E_L:y_L:M_L:decL_L:Id:" // MC - Lambda
+                         "gCharge_pi:gPx_pi:gPy_pi:gPz_pi:nFit_pi:nMax_pi:nCom_pi:nDedx_pi:dedx_pi:nSigPi_pi:nSigK_pi:nSigP_pi:dca_pi:dcaXY_pi:dcaZ_pi:" // RC - pi
+                         "gCharge_p:gPx_p:gPy_p:gPz_p:nFit_p:nMax_p:nCom_p:nDedx_p:dedx_p:nSigPi_p:nSigK_p:nSigP_p:dca_p:dcaXY_p:dcaZ_p:" // RC - p
+                         "gPx_L:gPy_L:gPz_L:gMass:"
+                         "gDecVtx_x:gDecVtx_y:gDecVtx_z:gDecL_L:pairDCA_L:" // RC - L
+                         "eventId:eventId_file:vx_MC:vy_MC:vz_MC:" //eventId - global, unique event ID, eventId_file - event ID for given file (used for feed-down study)
                          "vx_RC:vy_RC:vz_RC"); //event
                          
    mPDGdata = new TDatabasePDG();
+   
+   
+   nLambdas_hist = new TH1F("nLambdas_hist", "nLambdas_hist", 5, 0, 5);
+   nLambdaBars_hist = new TH1F("nLambdaBars_hist", "nLambdaBars_hist", 5, 0, 5);
+   
+   nLambdaMothers_hist = new TH1F("nLambdaMothers_hist", "nLambdaMothers_hist", 51, -1, 50);
+   nLambdaBarMothers_hist = new TH1F("nLambdaBarMothers_hist", "nLambdaBarMothers_hist", 51, -1, 50);
 
    if (mFillTpcHitsNtuple)
    {
@@ -165,11 +182,17 @@ int StMcAnalysisMaker::Make()
    int nMcTracks = -1;
 
    int fillTracksStatus = kStOk;
+      
    
    //for pp trigger check not needed?
-   fillTracksStatus = fillTracks(nRTracks, nMcTracks);
+   fillTracksStatus = fillTracks(nRTracks, nMcTracks);  
    
-   fillLambdas();
+   
+   fillLambdas_direct();  
+   
+   fillLambdas_pairs();
+   
+   fillRCLambdas();
    
 /*   
    if (passTrigger())
@@ -182,8 +205,10 @@ int StMcAnalysisMaker::Make()
    }
 */
    int fillEventCountStatus = fillEventCounts((float)nRTracks, (float)nMcTracks);
+        
 
    return fillTracksStatus && fillEventCountStatus;
+   //return fillTracksStatus;
 }
 
 int StMcAnalysisMaker::fillTracks(int& nRTracks, int& nMcTracks)
@@ -377,8 +402,57 @@ void StMcAnalysisMaker::fillTpcNtuple(StMcTrack const* const mcTrack, StTrack co
 bool StMcAnalysisMaker::isGoodMcTrack(StMcTrack const* const mcTrack) const
 {
 //    ( mcTrack->parent()->geantId() == McAnaCuts::motherGeantId_1 || mcTrack->parent()->geantId() == McAnaCuts::motherGeantId_2 )
-   return  ( mcTrack->geantId() == McAnaCuts::geantId_1 || mcTrack->geantId() == McAnaCuts::geantId_2 || mcTrack->geantId() == McAnaCuts::geantId_3 || mcTrack->geantId() == McAnaCuts::geantId_4)
-          && mcTrack->startVertex()->position().perp() < McAnaCuts::mcTrackStartVtxR;
+   //return  ( mcTrack->geantId() == McAnaCuts::geantId_1 || mcTrack->geantId() == McAnaCuts::geantId_2 || mcTrack->geantId() == McAnaCuts::geantId_3 || mcTrack->geantId() == McAnaCuts::geantId_4)
+          //&& mcTrack->startVertex()->position().perp() < McAnaCuts::mcTrackStartVtxR;
+          
+   return mcTrack->startVertex()->position().perp() < McAnaCuts::mcTrackStartVtxR;
+   //return mcTrack->startVertex()->position().z() < McAnaCuts::mcTrackStartVtxR;
+}
+
+
+bool StMcAnalysisMaker::isGoodRcPion(StTrack const* const rcTrack, int nCommonHits) const
+{  
+  // dedx info
+  float nSigPi = -9999;
+
+  static StTpcDedxPidAlgorithm aplus(McAnaCuts::dedxMethod);
+  static StPionPlus* PionPlus = StPionPlus::instance();
+  static StPionMinus* PionMinus = StPionMinus::instance();
+  StParticleDefinition const* prtcl = rcTrack->pidTraits(aplus);
+
+  if(prtcl)
+  {
+    StPhysicalHelixD helix = rcTrack->geometry()->helix();
+    
+    if(helix.charge(mField*kilogauss) > 0 ) nSigPi = aplus.numberOfSigma(PionPlus);
+    if(helix.charge(mField*kilogauss) < 0 ) nSigPi = aplus.numberOfSigma(PionMinus);
+  }
+   
+  return ( rcTrack->fitTraits().numberOfFitPoints(kTpcId) > 20 && (float(rcTrack->fitTraits().numberOfFitPoints(kTpcId))/rcTrack->numberOfPossiblePoints(kTpcId) ) > 0.52 &&
+            nCommonHits > 10 && fabs(nSigPi) < 3 );
+}
+
+
+bool StMcAnalysisMaker::isGoodRcProton(StTrack const* const rcTrack, int nCommonHits) const
+{
+  // dedx info
+  float nSigP = -9999;
+
+  static StTpcDedxPidAlgorithm aplus(McAnaCuts::dedxMethod);
+  static StProton* Proton = StProton::instance();
+  static StAntiProton* AntiProton = StAntiProton::instance();
+  StParticleDefinition const* prtcl = rcTrack->pidTraits(aplus);
+
+  if(prtcl)
+  {
+    StPhysicalHelixD helix = rcTrack->geometry()->helix();
+    
+    if(helix.charge(mField*kilogauss) > 0 ) nSigP = aplus.numberOfSigma(Proton);
+    if(helix.charge(mField*kilogauss) < 0 ) nSigP = aplus.numberOfSigma(AntiProton);
+  }
+   
+  return ( rcTrack->fitTraits().numberOfFitPoints(kTpcId) > 20 && (float(rcTrack->fitTraits().numberOfFitPoints(kTpcId))/rcTrack->numberOfPossiblePoints(kTpcId) ) > 0.52 &&
+            nCommonHits > 10 && fabs(nSigP) < 2 );
 }
 
 int StMcAnalysisMaker::fillEventCounts(float nRTracks, float nMcTracks)
@@ -491,7 +565,7 @@ void StMcAnalysisMaker::getDca(StTrack const* const rcTrack, float& dca, float& 
    StThreeVectorF dcaPoint = helix.at(helix.pathLength(mEvent->primaryVertex()->position()));
    dcaZ = dcaPoint.z() - mEvent->primaryVertex()->position().z();
 }
-
+//-------------------------------------------------------------------------------------------------------------
 float StMcAnalysisMaker::getPairDca(StTrack const* trk1, StTrack const* trk2) const
 {
   StPhysicalHelixD helix1 = trk1->geometry()->helix();
@@ -503,24 +577,6 @@ float StMcAnalysisMaker::getPairDca(StTrack const* trk1, StTrack const* trk2) co
   StThreeVectorF dcaPoint2 = helix2.at(ss.second);
 
   return (dcaPoint1 - dcaPoint2).mag();
-
-}
-
-float StMcAnalysisMaker::getDecayLength(StThreeVectorF pVertex_RC, StTrack const* trk1, StTrack const* trk2) const
-{
-  StPhysicalHelixD helix1 = trk1->geometry()->helix();
-  StPhysicalHelixD helix2 = trk2->geometry()->helix();
-  
-  pair<double, double> const ss = helix1.pathLengths(helix2);
-  
-  StThreeVectorF dcaPoint1 = helix1.at(ss.first);
-  StThreeVectorF dcaPoint2 = helix2.at(ss.second);
-  
-  StThreeVectorF secondaryVertex = (dcaPoint1 + dcaPoint2) * 0.5;
-  
-  StThreeVectorF DecL_vect = pVertex_RC - secondaryVertex;
-  
-  return DecL_vect.mag();
 
 }
 
@@ -539,7 +595,43 @@ StThreeVectorF StMcAnalysisMaker::getSecondaryVertex(StTrack const* trk1, StTrac
   return secondaryVertex;
 
 }
+//-------------------------------------------------------------------------------------------------------------
+float StMcAnalysisMaker::getPairDcaStraightLine(StTrack const* trk1, StTrack const* trk2) const
+{
+  StPhysicalHelixD helix1 = trk1->geometry()->helix();
+  StPhysicalHelixD helix2 = trk2->geometry()->helix();
+  
+  StPhysicalHelixD helix1Straight(trk1->geometry()->momentum(), helix1.origin(), 0, trk1->geometry()->charge());
+  StPhysicalHelixD helix2Straight(trk2->geometry()->momentum(), helix2.origin(), 0, trk2->geometry()->charge());
+  
+  pair<double, double> const ss = helix1Straight.pathLengths(helix2Straight);
+  
+  StThreeVectorF dcaPoint1 = helix1Straight.at(ss.first);
+  StThreeVectorF dcaPoint2 = helix2Straight.at(ss.second);
 
+  return (dcaPoint1 - dcaPoint2).mag();
+
+}
+
+StThreeVectorF StMcAnalysisMaker::getSecondaryVertexStraightLine(StTrack const* trk1, StTrack const* trk2) const
+{
+  StPhysicalHelixD helix1 = trk1->geometry()->helix();
+  StPhysicalHelixD helix2 = trk2->geometry()->helix();
+  
+  StPhysicalHelixD helix1Straight(trk1->geometry()->momentum(), helix1.origin(), 0, trk1->geometry()->charge());
+  StPhysicalHelixD helix2Straight(trk2->geometry()->momentum(), helix2.origin(), 0, trk2->geometry()->charge());
+  
+  pair<double, double> const ss = helix1Straight.pathLengths(helix2Straight);
+  
+  StThreeVectorF dcaPoint1 = helix1Straight.at(ss.first);
+  StThreeVectorF dcaPoint2 = helix2Straight.at(ss.second);
+  
+  StThreeVectorF secondaryVertex = (dcaPoint1 + dcaPoint2) * 0.5;
+
+  return secondaryVertex;
+
+}
+//-------------------------------------------------------------------------------------------------------------
 StThreeVectorF StMcAnalysisMaker::getMomentumAt(StTrack const* trk, StThreeVectorF vertex) const
 {
   StPhysicalHelixD helix = trk->geometry()->helix();
@@ -617,7 +709,65 @@ int StMcAnalysisMaker::getNHitsDedx(StTrack const* const t) const
    return ndedx;
 }
 
-int StMcAnalysisMaker::fillLambdas()
+int StMcAnalysisMaker::fillLambdas_direct()
+{
+  int nLambdas = 0;
+  int nLambdaBars = 0;
+  
+  cout<<mMcEvent->tracks().size()<<endl;
+
+  for (unsigned int iTrk = 0;  iTrk < mMcEvent->tracks().size(); ++iTrk)
+  {
+    StMcTrack* const mcTrack = mMcEvent->tracks()[iTrk];
+
+    if (!mcTrack)
+    {
+       LOG_WARN << "Empty mcTrack container" << endm;
+       continue;
+    }
+
+    if (!isGoodMcTrack(mcTrack)) continue;
+    
+    //cout<<"test "<<iTrk<<endl;
+    
+    //Lambda
+    //if( mcTrack->geantId() == 18 ) 
+    if( mcTrack->pdgId() == 3122 ) 
+    {
+      StMcTrack* const LambdaMotherTrack = mcTrack->parent();
+      
+      if(LambdaMotherTrack) nLambdaMothers_hist->Fill(LambdaMotherTrack->geantId());
+      else nLambdaMothers_hist->Fill(-1);
+        
+      nLambdas++;
+    }
+    
+    
+    //Lambda-bar
+    //if( mcTrack->geantId() == 26 )
+    if( mcTrack->pdgId() == -3122 ) 
+    {
+      StMcTrack* const LambdaMotherTrack = mcTrack->parent();
+      
+      if(LambdaMotherTrack) nLambdaBarMothers_hist->Fill(LambdaMotherTrack->geantId());
+      else nLambdaBarMothers_hist->Fill(-1);
+      
+      //nLambdaBarMothers_hist->Fill(mcTrack->parent()->geantId());
+      
+      nLambdaBars++;
+    }
+    
+     
+  }
+  
+  nLambdas_hist->Fill(nLambdas);
+  
+  nLambdaBars_hist->Fill(nLambdaBars);
+  
+
+}
+
+int StMcAnalysisMaker::fillLambdas_pairs()
 {
   //vectors of pions and p
   //save index of particle in MC event
@@ -682,6 +832,10 @@ int StMcAnalysisMaker::fillLambdas()
     StTrack const* const rcProton = findPartner(proton, nCommonHits_p);
     
     
+    StMcTrack* const ProtonMotherTrack = proton->parent();
+    
+    if(!ProtonMotherTrack) continue;
+    
     for(unsigned int i_pi = 0; i_pi < pi_minus_index.size(); i_pi++)
     {
       StMcTrack* const pion = mMcEvent->tracks()[pi_minus_index.at(i_pi)];
@@ -696,7 +850,14 @@ int StMcAnalysisMaker::fillLambdas()
       
       TLorentzVector L_4mom = p_4mom+pi_4mom;
       
-      if( fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5  ) //good MC Lambda
+      StMcTrack* const PionMotherTrack = pion->parent();
+      
+      if(!PionMotherTrack) continue;
+      
+      
+      if( ProtonMotherTrack->geantId() == 18  && PionMotherTrack->geantId() == 18 && fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5 )
+      //if( fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5  ) //good MC Lambda
+      //if( fabs(L_4mom.M() - Lambda_PDG->Mass()) < 0.2  )
       //if( fabs(proton->startVertex()->position().mag() - pion->startVertex()->position().mag()) < 1e-5 && fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5 )
       {
         //cout<<"Lambda found!"<<endl;
@@ -727,7 +888,20 @@ int StMcAnalysisMaker::fillLambdas()
         
         L_tree_vars[iVar++] = DecL_vect_MC.mag();
         
-        L_tree_vars[iVar++] = 3122; //L PDG id
+        
+        //StMcTrack* const ProtonMotherTrack = proton->parent();
+      
+        L_tree_vars[iVar++] = ProtonMotherTrack->geantId();        
+                
+        //L_tree_vars[iVar++] = 3122; //L PDG id
+        
+        
+        StMcTrack* const LambdaMotherTrack = ProtonMotherTrack->parent();
+      
+        if(LambdaMotherTrack) L_tree_vars[iVar++] = LambdaMotherTrack->geantId();
+        else L_tree_vars[iVar++] = -999;
+        
+        
         
                
         //get RC partners
@@ -923,7 +1097,7 @@ int StMcAnalysisMaker::fillLambdas()
           
           StThreeVectorF PrimaryVertex_RC(mEvent->primaryVertex()->position().x(),mEvent->primaryVertex()->position().y(),mEvent->primaryVertex()->position().z());
           
-          L_tree_vars[iVar++] = getDecayLength(PrimaryVertex_RC,rcPion, rcProton);
+          L_tree_vars[iVar++] = (PrimaryVertex_RC - SecondaryVertex_RC).mag();
           L_tree_vars[iVar++] = getPairDca(rcPion, rcProton);
         
         }
@@ -945,6 +1119,7 @@ int StMcAnalysisMaker::fillLambdas()
         }
         
         L_tree_vars[iVar++] = mMcEvent->eventNumber() + mJobIndex*1001;
+        L_tree_vars[iVar++] = mMcEvent->eventNumber(); //"local" event ID for given file - for feed-down study. To fill this properly, submit only one embedding file per job
         
         L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().x();
         L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().y();
@@ -977,6 +1152,9 @@ int StMcAnalysisMaker::fillLambdas()
     int nCommonHits_p = 0;
     StTrack const* const rcProton = findPartner(proton, nCommonHits_p);
     
+    StMcTrack* const ProtonMotherTrack = proton->parent();
+    
+    if(!ProtonMotherTrack) continue;
     
     for(unsigned int i_pi = 0; i_pi < pi_plus_index.size(); i_pi++)
     {
@@ -991,8 +1169,16 @@ int StMcAnalysisMaker::fillLambdas()
       
       
       TLorentzVector L_4mom = p_4mom+pi_4mom;
+                 
       
-      if( fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5  )
+      StMcTrack* const PionMotherTrack = pion->parent();
+      
+      if(!PionMotherTrack) continue;
+      
+      
+      if( ProtonMotherTrack->geantId() == 26  && PionMotherTrack->geantId() == 26 && fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5 )
+      //if( fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5  )
+      //if( fabs(L_4mom.M() - Lambda_PDG->Mass()) < 0.2  )
       //if( fabs(proton->startVertex()->position().mag() - pion->startVertex()->position().mag()) < 1e-5 && fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5 )
       {
         //cout<<"Lambda found!"<<endl;
@@ -1022,8 +1208,18 @@ int StMcAnalysisMaker::fillLambdas()
         StThreeVectorF DecL_vect_MC = PrimaryVertex_MC - pion->startVertex()->position(); //L MC decay vertex based on pion origin 
         
         L_tree_vars[iVar++] = DecL_vect_MC.mag();
-                
-        L_tree_vars[iVar++] = -3122; //L-bar PDG id
+        
+        
+        //StMcTrack* const ProtonMotherTrack = proton->parent();
+      
+        L_tree_vars[iVar++] = ProtonMotherTrack->pdgId();        
+        
+        //L_tree_vars[iVar++] = -3122; //L-bar PDG id
+        
+        StMcTrack* const LambdaMotherTrack = ProtonMotherTrack->parent();
+      
+        if(LambdaMotherTrack) L_tree_vars[iVar++] = LambdaMotherTrack->geantId();
+        else L_tree_vars[iVar++] = -999;
         
                
         //get RC partner
@@ -1219,7 +1415,7 @@ int StMcAnalysisMaker::fillLambdas()
           
           StThreeVectorF PrimaryVertex_RC(mEvent->primaryVertex()->position().x(),mEvent->primaryVertex()->position().y(),mEvent->primaryVertex()->position().z());
           
-          L_tree_vars[iVar++] = getDecayLength(PrimaryVertex_RC,rcPion, rcProton);
+          L_tree_vars[iVar++] = (PrimaryVertex_RC - SecondaryVertex_RC).mag();
           L_tree_vars[iVar++] = getPairDca(rcPion, rcProton);
         
         }
@@ -1241,6 +1437,7 @@ int StMcAnalysisMaker::fillLambdas()
         }
         
         L_tree_vars[iVar++] = mMcEvent->eventNumber() + mJobIndex*1001 ; //to set unique eventId in each submit
+        L_tree_vars[iVar++] = mMcEvent->eventNumber(); //"local" event ID for given file - for feed-down study. To fill this properly, submit only one embedding file per job
         
         L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().x();
         L_tree_vars[iVar++] = mMcEvent->primaryVertex()->position().y();
@@ -1258,7 +1455,324 @@ int StMcAnalysisMaker::fillLambdas()
   
   } //end for protons
   
+  return 1;
+  
+}
 
+int StMcAnalysisMaker::fillRCLambdas()
+{
+   //vectors of pions and p
+  //save index of particle in MC event
+  vector<int> pi_index_RC;  
+  vector<int> p_index_RC;
+
+
+  //find good RC tracks and filter them based on 
+  for (unsigned int iTrk = 0;  iTrk < mMcEvent->tracks().size(); ++iTrk)
+  {
+    StMcTrack* const mcTrack = mMcEvent->tracks()[iTrk];
+
+    if (!mcTrack)
+    {
+       LOG_WARN << "Empty mcTrack container" << endm;
+       continue;
+    }
+
+    if (!isGoodMcTrack(mcTrack)) continue;    
+    
+    //find RC partner and apply basic selection (TPC tracking and PID)
+    //store index of good RC particles    
+    int nCommonHits = 0;
+    StTrack const* const rcTrack = findPartner(mcTrack, nCommonHits);
+    
+    if( rcTrack )
+    {     
+      
+      if( isGoodRcPion(rcTrack, nCommonHits) )
+      {
+        pi_index_RC.push_back(iTrk);     
+      }
+      
+      
+      if( isGoodRcProton(rcTrack, nCommonHits) )
+      {
+        p_index_RC.push_back(iTrk);
+      }  
+      
+    }//end of rcTrack   
+    
+  }//end for loop over MC tracks
+
+
+  //analyze vectors
+  //find pi and p from decays of Lambda
+  //save info olny for MC Lambdas
+  //then find corresponding RC tracks
+  
+  float L_tree_vars_RC[100];  
+  for(unsigned int i = 0; i < 100; i++) L_tree_vars_RC[i] = -999; //default values
+  
+  
+  TParticlePDG *Lambda_PDG = mPDGdata->GetParticle(3122);
+  
+  TParticlePDG *pi_plus_PDG = mPDGdata->GetParticle(211);
+  TParticlePDG *pi_minus_PDG = mPDGdata->GetParticle(-211);
+  
+  TParticlePDG *p_PDG = mPDGdata->GetParticle(2212);
+  TParticlePDG *p_bar_PDG = mPDGdata->GetParticle(-2212);
+  
+  //pair selected RC p and pi
+  //apply additional cuts, like in analysis (e.g. topological cuts), possibly in analysis macro
+  //all selected tracks shoudl be good RC tracks - no need to make second check
+  
+  
+  for(unsigned int i_p = 0; i_p < p_index_RC.size(); i_p++)
+  {
+    StMcTrack* const proton = mMcEvent->tracks()[p_index_RC.at(i_p)];
+    
+    TLorentzVector p_4mom;
+    //p_4mom.SetPxPyPzE(proton->momentum().x(), proton->momentum().y(), proton->momentum().z(), proton->energy());
+    p_4mom.SetXYZM(proton->momentum().x(), proton->momentum().y(), proton->momentum().z(), p_PDG->Mass());
+    
+    int nCommonHits_p = 0;
+    StTrack const* const rcProton = findPartner(proton, nCommonHits_p);
+    
+    
+    for(unsigned int i_pi = 0; i_pi < pi_index_RC.size(); i_pi++)
+    {
+      if( p_index_RC.at(i_p) == pi_index_RC.at(i_pi) ) continue;
+    
+      StMcTrack* const pion = mMcEvent->tracks()[pi_index_RC.at(i_pi)];
+      
+      TLorentzVector pi_4mom;
+      //pi_4mom.SetPxPyPzE(pion->momentum().x(), pion->momentum().y(), pion->momentum().z(), pion->energy());
+      pi_4mom.SetXYZM(pion->momentum().x(), pion->momentum().y(), pion->momentum().z(), pi_minus_PDG->Mass());
+      
+      int nCommonHits_pi = 0;
+      StTrack const* const rcPion = findPartner(pion, nCommonHits_pi);      
+      
+      TLorentzVector L_4mom = p_4mom+pi_4mom;
+      
+      
+      int iVar = 0;
+      
+      //MC partners to selected RC pi and p candidates
+      //keep MC info to determine e.g. mis-PID contribution
+      
+      L_tree_vars_RC[iVar++] = pion->geantId();
+      L_tree_vars_RC[iVar++] = pion->momentum().x();
+      L_tree_vars_RC[iVar++] = pion->momentum().y();
+      L_tree_vars_RC[iVar++] = pion->momentum().z();
+      L_tree_vars_RC[iVar++] = pion->energy();
+      L_tree_vars_RC[iVar++] = pion->rapidity();
+      
+      L_tree_vars_RC[iVar++] = proton->geantId();
+      L_tree_vars_RC[iVar++] = proton->momentum().x();
+      L_tree_vars_RC[iVar++] = proton->momentum().y();
+      L_tree_vars_RC[iVar++] = proton->momentum().z();
+      L_tree_vars_RC[iVar++] = proton->energy();
+      L_tree_vars_RC[iVar++] = proton->rapidity();
+      
+      L_tree_vars_RC[iVar++] = L_4mom.Px();
+      L_tree_vars_RC[iVar++] = L_4mom.Py();
+      L_tree_vars_RC[iVar++] = L_4mom.Pz();
+      L_tree_vars_RC[iVar++] = L_4mom.E();
+      L_tree_vars_RC[iVar++] = L_4mom.Rapidity();
+      L_tree_vars_RC[iVar++] = L_4mom.M();
+      
+      StThreeVectorF PrimaryVertex_MC(mMcEvent->primaryVertex()->position().x(),mMcEvent->primaryVertex()->position().y(),mMcEvent->primaryVertex()->position().z());
+      StThreeVectorF DecL_vect_MC = PrimaryVertex_MC - pion->startVertex()->position(); //L MC decay vertex based on pion origin 
+      
+      L_tree_vars_RC[iVar++] = DecL_vect_MC.mag();
+      
+            
+      //tag true MC L and Lbar
+      if( proton->geantId() == 14 && pion->geantId() == 9 && (fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5) ) L_tree_vars_RC[iVar++] = 3122; //L-bar PDG id
+      else if(proton->geantId() == 15 && pion->geantId() == 8 && (fabs(L_4mom.M() - Lambda_PDG->Mass()) < 1e-5) ) L_tree_vars_RC[iVar++] = -3122; //L-bar PDG id
+      else L_tree_vars_RC[iVar++] = 0; //not a true L or Lbar
+      
+             
+      
+      
+      //primary and secondary vertex
+      
+      StThreeVectorF PrimaryVertex_RC(mEvent->primaryVertex()->position().x(),mEvent->primaryVertex()->position().y(),mEvent->primaryVertex()->position().z());
+      
+      
+      StThreeVectorF SecondaryVertex_RC;   
+      
+      SecondaryVertex_RC = getSecondaryVertex(rcPion, rcProton); //this can be used for proton too
+      //SecondaryVertex_RC = getSecondaryVertexStraightLine(rcPion, rcProton); //test straight lines approximation
+      
+      //get RC partners
+      //RC pions
+      StThreeVectorF rcPionMom;
+      
+      rcPionMom = getMomentumAt(rcPion, SecondaryVertex_RC);    
+      
+      //to get RC daugter charges
+      StPhysicalHelixD helix_pion = rcPion->geometry()->helix();
+      
+      L_tree_vars_RC[iVar++] = helix_pion.charge(mField*kilogauss);
+      L_tree_vars_RC[iVar++] = rcPionMom.x();
+      L_tree_vars_RC[iVar++] = rcPionMom.y();
+      L_tree_vars_RC[iVar++] = rcPionMom.z();
+      L_tree_vars_RC[iVar++] = rcPion->fitTraits().numberOfFitPoints(kTpcId);
+      L_tree_vars_RC[iVar++] = rcPion->numberOfPossiblePoints(kTpcId);
+      L_tree_vars_RC[iVar++] = nCommonHits_pi;
+      
+      // dedx info
+      static StPionPlus* Pion = StPionPlus::instance();
+      static StKaonPlus* Kaon = StKaonPlus::instance();
+      static StProton* Proton = StProton::instance();
+      
+      
+      float nDedxPts_pi = -9999;
+      float dedx_pi = -9999;
+      float nSigPi_pi = -9999;
+      float nSigK_pi = -9999;
+      float nSigP_pi = -9999;
+      
+      static StTpcDedxPidAlgorithm aplus_pi(McAnaCuts::dedxMethod);      
+      StParticleDefinition const* prtcl_pi = rcPion->pidTraits(aplus_pi);
+
+      if (prtcl_pi)
+      {
+        nDedxPts_pi = aplus_pi.traits()->numberOfPoints();
+        dedx_pi = aplus_pi.traits()->mean();
+        nSigPi_pi = aplus_pi.numberOfSigma(Pion);
+        nSigK_pi = aplus_pi.numberOfSigma(Kaon);
+        nSigP_pi = aplus_pi.numberOfSigma(Proton);
+      }
+
+      L_tree_vars_RC[iVar++] = getNHitsDedx(rcPion);
+      L_tree_vars_RC[iVar++] = dedx_pi;
+      L_tree_vars_RC[iVar++] = nSigPi_pi;
+      L_tree_vars_RC[iVar++] = nSigK_pi;
+      L_tree_vars_RC[iVar++] = nSigP_pi;
+
+
+      float dca_pi = -999.;
+      float dcaXY_pi = -999.;
+      float dcaZ_pi = -999.;
+
+      getDca(rcPion, dca_pi, dcaXY_pi, dcaZ_pi);
+
+      L_tree_vars_RC[iVar++] = dca_pi;
+      L_tree_vars_RC[iVar++] = dcaXY_pi;
+      L_tree_vars_RC[iVar++] = dcaZ_pi;                             
+          
+      //________________________________
+      
+      //RC protons
+      
+      StThreeVectorF rcProtonMom;
+
+      rcProtonMom = getMomentumAt(rcProton, SecondaryVertex_RC);        
+      
+      //to get RC daugter charges 
+      StPhysicalHelixD helix_proton = rcProton->geometry()->helix();        
+    
+      L_tree_vars_RC[iVar++] = helix_proton.charge(mField*kilogauss);
+      L_tree_vars_RC[iVar++] = rcProtonMom.x();
+      L_tree_vars_RC[iVar++] = rcProtonMom.y();
+      L_tree_vars_RC[iVar++] = rcProtonMom.z();
+      L_tree_vars_RC[iVar++] = rcProton->fitTraits().numberOfFitPoints(kTpcId);
+      L_tree_vars_RC[iVar++] = rcProton->numberOfPossiblePoints(kTpcId);
+      L_tree_vars_RC[iVar++] = nCommonHits_p;
+      
+      // dedx info
+      float nDedxPts_p = -9999;
+      float dedx_p = -9999;
+      float nSigPi_p = -9999;
+      float nSigK_p = -9999;
+      float nSigP_p = -9999;
+
+      //static StTpcDedxPidAlgorithm aplus(McAnaCuts::dedxMethod);
+      //static StPionPlus* Pion = StPionPlus::instance();
+      //static StKaonPlus* Kaon = StKaonPlus::instance();
+      //static StProton* Proton = StProton::instance();
+      
+      static StTpcDedxPidAlgorithm aplus_p(McAnaCuts::dedxMethod);
+      StParticleDefinition const* prtcl_p = rcProton->pidTraits(aplus_p);
+
+      if (prtcl_p)
+      {
+        nDedxPts_p = aplus_p.traits()->numberOfPoints();
+        dedx_p = aplus_p.traits()->mean();
+        nSigPi_p = aplus_p.numberOfSigma(Pion);
+        nSigK_p = aplus_p.numberOfSigma(Kaon);
+        nSigP_p = aplus_p.numberOfSigma(Proton);
+      }
+
+      L_tree_vars_RC[iVar++] = getNHitsDedx(rcProton);
+      L_tree_vars_RC[iVar++] = dedx_p;
+      L_tree_vars_RC[iVar++] = nSigPi_p;
+      L_tree_vars_RC[iVar++] = nSigK_p;
+      L_tree_vars_RC[iVar++] = nSigP_p;
+
+
+      float dca_p = -999.;
+      float dcaXY_p = -999.;
+      float dcaZ_p = -999.;
+
+      getDca(rcProton, dca_p, dcaXY_p, dcaZ_p);
+
+      L_tree_vars_RC[iVar++] = dca_p;
+      L_tree_vars_RC[iVar++] = dcaXY_p;
+      L_tree_vars_RC[iVar++] = dcaZ_p;     
+
+    
+      TLorentzVector pi_rc_mom;
+      //pi_rc_mom.SetXYZM(rcPion->geometry()->momentum().x(), rcPion->geometry()->momentum().y(), rcPion->geometry()->momentum().z(),pi_minus_PDG->Mass());
+      pi_rc_mom.SetXYZM(rcPionMom.x(), rcPionMom.y(), rcPionMom.z(),pi_minus_PDG->Mass());
+      
+      TLorentzVector p_rc_mom;
+      //p_rc_mom.SetXYZM(rcProton->geometry()->momentum().x(), rcProton->geometry()->momentum().y(), rcProton->geometry()->momentum().z(),p_PDG->Mass());
+      p_rc_mom.SetXYZM(rcProtonMom.x(), rcProtonMom.y(), rcProtonMom.z(),p_PDG->Mass());
+      
+      
+      //RC Lambda
+      TLorentzVector L_rc_mom = pi_rc_mom+p_rc_mom;
+      
+      L_tree_vars_RC[iVar++] = L_rc_mom.X();
+      L_tree_vars_RC[iVar++] = L_rc_mom.Y();
+      L_tree_vars_RC[iVar++] = L_rc_mom.Z();
+      L_tree_vars_RC[iVar++] = L_rc_mom.M();          
+
+      L_tree_vars_RC[iVar++] = SecondaryVertex_RC.x();
+      L_tree_vars_RC[iVar++] = SecondaryVertex_RC.y();
+      L_tree_vars_RC[iVar++] = SecondaryVertex_RC.z();
+
+      
+      L_tree_vars_RC[iVar++] = (PrimaryVertex_RC - SecondaryVertex_RC).mag();
+      
+      L_tree_vars_RC[iVar++] = getPairDca(rcPion, rcProton);      
+      //L_tree_vars_RC[iVar++] = getPairDcaStraightLine(rcPion, rcProton); //test straight lines approximation
+        
+      //-------------------------------------------------------------------------------------------------------------
+      
+      //event statistics  
+        
+      L_tree_vars_RC[iVar++] = mMcEvent->eventNumber() + mJobIndex*1001 ; //to set unique eventId in each submit
+      L_tree_vars_RC[iVar++] = mMcEvent->eventNumber(); //"local" event ID for given file - for feed-down study. To fill this properly, submit only one embedding file per job
+      
+      L_tree_vars_RC[iVar++] = mMcEvent->primaryVertex()->position().x();
+      L_tree_vars_RC[iVar++] = mMcEvent->primaryVertex()->position().y();
+      L_tree_vars_RC[iVar++] = mMcEvent->primaryVertex()->position().z();
+      
+      L_tree_vars_RC[iVar++] = mEvent->primaryVertex()->position().x();
+      L_tree_vars_RC[iVar++] = mEvent->primaryVertex()->position().y();
+      L_tree_vars_RC[iVar++] = mEvent->primaryVertex()->position().z();
+      
+      mLambdaRC->Fill(L_tree_vars_RC);
+    
+    }
+    
+  }
+  
+  return 1;
+  
 }
 
 
